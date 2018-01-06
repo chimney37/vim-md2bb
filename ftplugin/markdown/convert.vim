@@ -1,4 +1,5 @@
 :command! Md2bb :call ConvertMarkdownToBBCode()
+
 " Get SetextHeading ---------{{{
 function! GetSetextHeadingFromText(text, start, ...)
     if a:1 == 1
@@ -12,9 +13,16 @@ function! GetSetextHeadingFromText(text, start, ...)
     return matchstrpos(a:text, setext_heading_regex, a:start)
 endfunction
 
+" Get Markdown link: don't allow weird names with non-word or space characters
+" (at least in this version)
+function! GetLink(text, start,...)
+    let regex = '\v\[(\w|(\s|\.))+\]\((\w|:|\s|\/|\.|#|\?)+\)'
+    return matchstrpos(a:text, regex, a:start)
+endfunction
+
 function! GetAnyText(text, start, ...)
-   let regex = '\v\S+(\s\S+)*\n'
-   return matchstrpos(a:text, regex, a:start)
+    let regex = '\v\S+(\s\S+)*\n'
+    return matchstrpos(a:text, regex, a:start)
 endfunction
 "}}}
 
@@ -44,7 +52,7 @@ function! ConvertSetextType1ToBB(matchlist)
     let matchsetextheading = substitute(matchsetextheading,'=','',"g")
 
     " Example: Convert to BBCode for H1
-    return "[size=32]" . matchsetextheading . "[/size]"
+    return "[size=32]" . matchsetextheading . "[/size]" . "\n"
 endfunction
 
 function! ConvertSetextType2ToBB(matchlist)
@@ -56,6 +64,14 @@ function! ConvertSetextType2ToBB(matchlist)
     return "[size=24]" . matchsetextheading . "[/size]" . "\n"
 endfunction
 
+" convert html links
+function! ConvertLinktoBB(matchlist)
+    let name = matchlist(a:matchlist, '\v\[((\w|\s)+)\]')
+    let url = matchlist(a:matchlist, '\v\(((\w|\s|:|/|\.|#|\?)+)\)')
+    return "[url=" . url[1] . "]". name[1] . "[/url]".  "\n"
+endfunction
+
+" convert any other text to BB
 function! ConvertOtherToBB(matchlist)
     return substitute(a:matchlist[0],'\n','',"g") . "\n"
 endfunction
@@ -75,11 +91,13 @@ function! ConvertMarkdownToBBCode()
     let endidx = strchars(mdcode, 0) + len(mdcodelist) -1
     
     " parse Setext headings
-    " TODO:  Make this a loop, with recursive for nested,etc.
-    "echom string(len(mdcodelist))
-    "echom mdcodelist[35]
-    " Dict structure: Key:<ParseFunction>
-    " Value:[[ParseFuncArgs],{<ConversionFuncName>:[ConversionFuncArgs]}]
+    " This makes use of functional programming, passing on function names in a
+    " specific order to execute in a loop. It follows a specific construct:
+    " ["<ParseFunctionName1>",[ParseFuncArgs1],["<ConversionFuncName1"]],
+    " "<ParseFunctionName2>",[ParseFuncArgs2],["<ConversionFuncName2"]], ...]
+    " TODO: Add a 4th item in the construct for implementing post-process functions.
+    " converters. Define it like:
+    " ["GetLink", "GetUnderline", "GetBold", "GetItalic", "GetCode", "GetStrikeThrough"]
     let functions = [
                 \["GetSetextHeadingFromText",
                 \ ["mdcode","startidx","1"],
@@ -87,6 +105,9 @@ function! ConvertMarkdownToBBCode()
                 \["GetSetextHeadingFromText",
                 \ ["mdcode","startidx","2"],
                 \ "ConvertSetextType2ToBB"],
+                \["GetLink",
+                \ ["mdcode","startidx","0"],
+                \ "ConvertLinktoBB"],
                 \["GetAnyText",
                 \ ["mdcode","startidx","0"],
                 \ "ConvertOtherToBB"]
@@ -112,10 +133,6 @@ function! ConvertMarkdownToBBCode()
             else
                 let n += 1
             endif
-            "let bufferstr .= ConvertSetextType1ToBB(matchlist) . "\n"
-
-            "let matchlist = GetSetextHeadingFromText(mdcode, matchlist[2] + 1, 2)
-            "let bufferstr .= ConvertSetextType2ToBB(matchlist) . "\n"
         endwhile
         let currentidx += 1
     endwhile
